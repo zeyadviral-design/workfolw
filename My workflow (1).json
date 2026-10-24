@@ -1,0 +1,527 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "البحث عن متاجر في السعودية",
+        "formDescription": "اكتب مجال المتاجر اللي عايز تدور عليها (مثال: عطور، ملابس)",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "keyword",
+              "placeholder": "عطور",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ecdc2808-1e6b-48b0-b4f3-179ca8df84d8",
+      "name": "بدء البحث",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "43aadbe0-20ed-437e-9056-e422d57d4487"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "kw",
+              "name": "keyword",
+              "value": "={{ $json.keyword }}",
+              "type": "string"
+            },
+            {
+              "id": "pg",
+              "name": "offsets",
+              "value": "={{ [2, 3] }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c4ed62fe-4ac9-4651-aca5-7dbed6502c23",
+      "name": "تحديد الصفحات 3 و4",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "offsets",
+        "include": "selectedOtherFields",
+        "fieldsToInclude": "keyword",
+        "options": {}
+      },
+      "id": "7a7cc715-9ea4-4a4f-892d-329c36c300aa",
+      "name": "صفحة لكل عنصر",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        496,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "query": "=متجر {{ $json.keyword }} السعودية",
+        "additionalParameters": {
+          "country": "SA",
+          "search_lang": "ar",
+          "offset": "={{ $json.offsets }}"
+        }
+      },
+      "id": "bad87184-f11c-4133-b90c-cf04b6354cb1",
+      "name": "بحث المتاجر",
+      "type": "@brave/n8n-nodes-brave-search.braveSearch",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        128
+      ],
+      "credentials": {
+        "braveSearchApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const seen = new Set();\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  let results = [];\n  if (j.web && Array.isArray(j.web.results)) results = j.web.results;\n  else if (Array.isArray(j.results)) results = j.results;\n  else if (j.url) results = [j];\n  for (const r of results) {\n    if (!r || !r.url) continue;\n    const m = String(r.url).match(/^https?:\\/\\/([^\\/?#]+)/i);\n    if (!m) continue;\n    const host = m[1].toLowerCase().replace(/^www\\./, '');\n    if (seen.has(host)) continue;\n    seen.add(host);\n    out.push({ json: { title: r.title || '', url: r.url, host: host } });\n  }\n}\nreturn out;"
+      },
+      "id": "5bd3c9d6-0baa-4a1c-9aed-a8707b532a7a",
+      "name": "استخراج روابط المتاجر",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "scrape",
+        "url": "={{ $json.url }}",
+        "scrapeOptions": {
+          "options": {
+            "formats": {
+              "format": [
+                {}
+              ]
+            },
+            "headers": {},
+            "onlyMainContent": false
+          }
+        },
+        "requestOptions": {}
+      },
+      "id": "fe49defb-2b87-451c-bc6b-80ab54fecdec",
+      "name": "قراءة صفحة المتجر",
+      "type": "@mendable/n8n-nodes-firecrawl.firecrawl",
+      "typeVersion": 1,
+      "position": [
+        800,
+        128
+      ],
+      "credentials": {
+        "firecrawlApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini",
+          "cachedResultName": "GPT-5-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "انت مساعد بيحلل محتوى صفحة متجر سعودي. استخرج: اسم المتجر، اسم المالك او صاحب المتجر لو مذكور (لو مش موجود رجع فاضي)، رقم الجوال/واتساب بالصيغة الدولية بدون مسافات (مثال: +966551234567)، وروابط حسابات التواصل الاجتماعي الكاملة (انستجرام، تويتر/اكس، سناب شات، تيك توك، فيسبوك). اي حقل مش موجود بشكل واضح في الصفحة رجعه فاضي ولا تخترع بيانات."
+            },
+            {
+              "content": "=رابط المتجر: {{ $('استخراج روابط المتاجر').item.json.url }}\nعنوان نتيجة البحث: {{ $('استخراج روابط المتاجر').item.json.title }}\n\nمحتوى الصفحة:\n{{ ($json.data?.markdown ?? $json.markdown ?? '').slice(0, 15000) }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema",
+              "name": "store_info",
+              "schema": "{\"type\":\"object\",\"properties\":{\"store_name\":{\"type\":\"string\"},\"owner_name\":{\"type\":\"string\"},\"phone\":{\"type\":\"string\"},\"instagram\":{\"type\":\"string\"},\"twitter\":{\"type\":\"string\"},\"snapchat\":{\"type\":\"string\"},\"tiktok\":{\"type\":\"string\"},\"facebook\":{\"type\":\"string\"}},\"required\":[\"store_name\",\"owner_name\",\"phone\",\"instagram\",\"twitter\",\"snapchat\",\"tiktok\",\"facebook\"],\"additionalProperties\":false}",
+              "strict": true
+            }
+          }
+        }
+      },
+      "id": "6725df98-c8c0-4680-8cfd-705912fa9849",
+      "name": "استخراج بيانات المتجر",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1024,
+        128
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n",
+              "name": "store_name",
+              "value": "={{ $json.output[0].content[0].text.store_name }}",
+              "type": "string"
+            },
+            {
+              "id": "o",
+              "name": "owner_name",
+              "value": "={{ $json.output[0].content[0].text.owner_name }}",
+              "type": "string"
+            },
+            {
+              "id": "p",
+              "name": "phone",
+              "value": "={{ $json.output[0].content[0].text.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "ig",
+              "name": "instagram",
+              "value": "={{ $json.output[0].content[0].text.instagram }}",
+              "type": "string"
+            },
+            {
+              "id": "tw",
+              "name": "twitter",
+              "value": "={{ $json.output[0].content[0].text.twitter }}",
+              "type": "string"
+            },
+            {
+              "id": "sc",
+              "name": "snapchat",
+              "value": "={{ $json.output[0].content[0].text.snapchat }}",
+              "type": "string"
+            },
+            {
+              "id": "tt",
+              "name": "tiktok",
+              "value": "={{ $json.output[0].content[0].text.tiktok }}",
+              "type": "string"
+            },
+            {
+              "id": "fb",
+              "name": "facebook",
+              "value": "={{ $json.output[0].content[0].text.facebook }}",
+              "type": "string"
+            },
+            {
+              "id": "u",
+              "name": "url",
+              "value": "={{ $('استخراج روابط المتاجر').item.json.url }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0e5fcd64-fc8e-4104-93e2-69aa8c36ddab",
+      "name": "تجهيز بيانات المتجر",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1376,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Data mining: cleaning, normalization, validation, dedup, quality scoring\nconst clean = (v) => String(v || '').replace(/\\s+/g, ' ').trim();\nconst junk = /^(n\\/a|na|none|null|undefined|غير متوفر|غير معروف|لا يوجد|-)$/i;\nconst val = (v) => { const c = clean(v); return junk.test(c) ? '' : c; };\n\nfunction normPhone(raw) {\n  let d = String(raw || '').replace(/[^0-9]/g, '');\n  if (d.startsWith('00966')) d = d.slice(5);\n  else if (d.startsWith('966')) d = d.slice(3);\n  if (d.startsWith('0')) d = d.slice(1);\n  return /^5\\d{8}$/.test(d) ? '+966' + d : '';\n}\n\nconst platforms = {\n  instagram: /^https?:\\/\\/(www\\.)?instagram\\.com\\/[A-Za-z0-9_.]+/i,\n  twitter: /^https?:\\/\\/(www\\.)?(twitter|x)\\.com\\/[A-Za-z0-9_]+/i,\n  snapchat: /^https?:\\/\\/(www\\.)?snapchat\\.com\\/add\\/[A-Za-z0-9_.\\-]+/i,\n  tiktok: /^https?:\\/\\/(www\\.)?tiktok\\.com\\/@[A-Za-z0-9_.]+/i,\n  facebook: /^https?:\\/\\/(www\\.|m\\.)?facebook\\.com\\/[A-Za-z0-9_.\\-]+/i,\n};\nconst labels = { instagram: 'Instagram', twitter: 'X', snapchat: 'Snapchat', tiktok: 'TikTok', facebook: 'Facebook' };\n\nfunction normUrl(u) {\n  let s = val(u);\n  if (!s) return '';\n  if (!/^https?:\\/\\//i.test(s)) s = 'https://' + s.replace(/^\\/+/, '');\n  return s.split('?')[0].replace(/\\/+$/, '');\n}\n\nconst seenPhones = new Set();\nconst seenSites = new Set();\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const storeUrl = normUrl(j.url);\n  const host = storeUrl.replace(/^https?:\\/\\//i, '').replace(/^www\\./i, '').split('/')[0].toLowerCase();\n  const phone = normPhone(j.phone);\n  const socials = [];\n  for (const k of Object.keys(platforms)) {\n    const u = normUrl(j[k]);\n    if (u && platforms[k].test(u)) socials.push(labels[k] + ': ' + u);\n  }\n  const storeName = val(j.store_name) || host;\n  const ownerName = val(j.owner_name);\n\n  // Deduplicate by website and by phone\n  if (!host || seenSites.has(host)) continue;\n  if (phone && seenPhones.has(phone)) continue;\n\n  // Completeness score (0-100)\n  let score = 0;\n  if (val(j.store_name)) score += 25;\n  if (ownerName) score += 15;\n  if (phone) score += 35;\n  if (socials.length) score += 25;\n\n  const valid = !!storeName && (!!phone || socials.length > 0);\n  if (!valid) continue;\n\n  seenSites.add(host);\n  if (phone) seenPhones.add(phone);\n  out.push({ json: {\n    store_name: storeName,\n    owner_name: ownerName,\n    phone: phone,\n    socials: socials.join('\\n'),\n    store_url: storeUrl,\n    quality_score: score,\n  } });\n}\nout.sort((a, b) => b.json.quality_score - a.json.quality_score);\nreturn out;"
+      },
+      "id": "774f99a6-6bc8-48af-950a-a712cf6e12d0",
+      "name": "تنظيف وتحقق البيانات",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1puRNNcFY1RMoLwpHWhwtKiP0cFlUlOFXOsrRgrJGj_c",
+          "mode": "list",
+          "cachedResultName": "real data",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1puRNNcFY1RMoLwpHWhwtKiP0cFlUlOFXOsrRgrJGj_c/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gid=0",
+          "cachedResultName": "الورقة1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1puRNNcFY1RMoLwpHWhwtKiP0cFlUlOFXOsrRgrJGj_c/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "store_name": "={{ $json.store_name }}",
+            "owner_name": "={{ $json.owner_name }}",
+            "phone": "={{ $json.phone }}",
+            "socials": "={{ $json.socials }}",
+            "store_url": "={{ $json.store_url }}",
+            "quality_score": "={{ $json.quality_score }}"
+          },
+          "schema": [
+            {
+              "id": "store_name",
+              "displayName": "store_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "owner_name",
+              "displayName": "owner_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "socials",
+              "displayName": "socials",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "store_url",
+              "displayName": "store_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "quality_score",
+              "displayName": "quality_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7b1b8e7a-201d-4add-bb39-9f233ee6799e",
+      "name": "حفظ في الشيت",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1824,
+        128
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2Fs9uTWtBrl66ypC",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "بدء البحث": {
+      "main": [
+        [
+          {
+            "node": "تحديد الصفحات 3 و4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "تحديد الصفحات 3 و4": {
+      "main": [
+        [
+          {
+            "node": "صفحة لكل عنصر",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "صفحة لكل عنصر": {
+      "main": [
+        [
+          {
+            "node": "بحث المتاجر",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "بحث المتاجر": {
+      "main": [
+        [
+          {
+            "node": "استخراج روابط المتاجر",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "استخراج روابط المتاجر": {
+      "main": [
+        [
+          {
+            "node": "قراءة صفحة المتجر",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "قراءة صفحة المتجر": {
+      "main": [
+        [
+          {
+            "node": "استخراج بيانات المتجر",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "استخراج بيانات المتجر": {
+      "main": [
+        [
+          {
+            "node": "تجهيز بيانات المتجر",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "تجهيز بيانات المتجر": {
+      "main": [
+        [
+          {
+            "node": "تنظيف وتحقق البيانات",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "تنظيف وتحقق البيانات": {
+      "main": [
+        [
+          {
+            "node": "حفظ في الشيت",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1876af50-adb4-43cb-879b-ba07bb80f8d3",
+  "meta": {
+    "instanceId": "f93b0156ab23b64e1f08b6fd591206677215625012aaa430b411842427d8751b"
+  },
+  "nodeGroups": [
+    {
+      "id": "3a4f10ac-1e32-4d8d-8334-b26d571fd72b",
+      "name": "Find Saudi stores",
+      "nodeIds": [
+        "c4ed62fe-4ac9-4651-aca5-7dbed6502c23",
+        "7a7cc715-9ea4-4a4f-892d-329c36c300aa",
+        "bad87184-f11c-4133-b90c-cf04b6354cb1",
+        "5bd3c9d6-0baa-4a1c-9aed-a8707b532a7a"
+      ],
+      "description": "Searches results pages 3 and 4 for the keyword in Saudi Arabia and keeps one link per store website"
+    },
+    {
+      "id": "0fe103d5-f5f3-48ae-befb-78d3b5602d51",
+      "name": "Extract store details",
+      "nodeIds": [
+        "fe49defb-2b87-451c-bc6b-80ab54fecdec",
+        "6725df98-c8c0-4680-8cfd-705912fa9849",
+        "0e5fcd64-fc8e-4104-93e2-69aa8c36ddab"
+      ],
+      "description": "Reads each store page and pulls the store name, owner, mobile number and social media links"
+    },
+    {
+      "id": "d45a149d-cb52-4834-aea9-ed6e72d76288",
+      "name": "Clean and export",
+      "nodeIds": [
+        "774f99a6-6bc8-48af-950a-a712cf6e12d0",
+        "7b1b8e7a-201d-4add-bb39-9f233ee6799e"
+      ],
+      "description": "Normalizes and validates every field, removes duplicates and incomplete stores, then appends rows to the sheet"
+    }
+  ],
+  "id": "cY5maHO0p3Jmr71E",
+  "tags": []
+}
